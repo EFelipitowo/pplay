@@ -5,6 +5,9 @@ on:
   push:
     branches: [ master, main, ps4-fixes ]
 
+permissions:
+  contents: write
+
 jobs:
   ps4:
     runs-on: ubuntu-24.04
@@ -70,3 +73,16 @@ jobs:
             cmake-build-ps4/*.zip
             cmake-build-ps4/*.pkg
           if-no-files-found: error
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="ps4-build-${{ github.run_number }}"
+          cd cmake-build-ps4
+          unzip -l pplay-*.zip | tail -n 25
+          gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "pplay PS4 build #${{ github.run_number }}" \
+            --notes "Unofficial PS4 build with fixes (Network non-blocking, long menu scrolling, Options removed on PS4). Install the .pkg and copy the data folder from the zip to /data/pplay/ on the console." \
+            pplay-*.zip *.pkg
