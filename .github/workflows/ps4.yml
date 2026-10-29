@@ -7,30 +7,25 @@ on:
 
 jobs:
   ps4:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get -yq update
-          sudo apt-get -yq install build-essential cmake git zip curl libgpgme11
-          # pacbrew-pacman needs libcrypto.so.1.1, not shipped with ubuntu 22.04
-          echo "deb http://security.ubuntu.com/ubuntu focal-security main" | sudo tee /etc/apt/sources.list.d/focal-security.list
-          sudo apt-get -yq update
-          sudo apt-get -yq install libssl1.1
-          sudo rm /etc/apt/sources.list.d/focal-security.list
-
-      - name: Install PS4 toolchain (OpenOrbis via PacBrew)
+      - name: Install pacman and PS4 toolchain (OpenOrbis via PacBrew)
         run: |
           set +e
           {
-            wget -nv https://github.com/PacBrew/pacbrew-pacman/releases/download/pacbrew-release-1.0/pacbrew-pacman-1.0.deb &&
-            sudo dpkg -i pacbrew-pacman-1.0.deb &&
-            sudo pacbrew-pacman -Syu --noconfirm &&
-            sudo pacbrew-pacman --noconfirm -S ps4-openorbis ps4-openorbis-portlibs
+            set -e
+            sudo apt-get -yq update
+            sudo apt-get -yq install pacman-package-manager makepkg libarchive-tools build-essential \
+              autoconf libtool cmake nasm git curl python3 zip
+            # new PacBrew package server (see PacBrew/pacbrew-packages README)
+            printf '\n[pacbrew]\nSigLevel = Optional TrustAll\nServer = https://pacman.mydedibox.fr/pacbrew/packages/\n' | sudo tee -a /etc/pacman.conf
+            sudo pacman -Sy
+            sudo pacman -S --noconfirm ps4-openorbis ps4-openorbis-portlibs
+            ls /opt/pacbrew/ps4/openorbis
           } > toolchain.log 2>&1
           rc=$?
           cat toolchain.log
