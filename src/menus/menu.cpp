@@ -87,7 +87,63 @@ Menu::Menu(Main *m, const c2d::FloatRect &rect, const std::string &_title,
     }
 }
 
+void Menu::updateScroll() {
+    if (buttons.empty()) {
+        return;
+    }
+
+    const float sy = main->getScaling().y;
+    const float step = 64 * sy;
+    const float top0 = 200 * sy;
+
+    int topCount = 0, bottomCount = 0, selectedRank = -1;
+    for (int i = 0; i < (int) buttons.size(); i++) {
+        if (buttons[i]->item.position == MenuItem::Position::Top) {
+            if (i == index) {
+                selectedRank = topCount;
+            }
+            topCount++;
+        } else {
+            bottomCount++;
+        }
+    }
+
+    // number of "top" buttons that fit between the title and the "bottom" buttons
+    float avail = Menu::getSize().y - top0 - ((float) bottomCount * step) - (32 * sy);
+    int maxVisible = std::max(1, (int) (avail / step));
+
+    if (topCount <= maxVisible) {
+        scrollIndex = 0;
+    } else {
+        if (selectedRank >= 0) {
+            if (selectedRank < scrollIndex) {
+                scrollIndex = selectedRank;
+            } else if (selectedRank >= scrollIndex + maxVisible) {
+                scrollIndex = selectedRank - maxVisible + 1;
+            }
+        }
+        scrollIndex = std::max(0, std::min(scrollIndex, topCount - maxVisible));
+    }
+
+    int rank = 0;
+    for (auto &button: buttons) {
+        if (button->item.position != MenuItem::Position::Top) {
+            continue;
+        }
+        bool visible = rank >= scrollIndex && rank < scrollIndex + maxVisible;
+        button->setPosition(button->getPosition().x, top0 + (float) (rank - scrollIndex) * step);
+        button->setVisibility(visible ? Visibility::Visible : Visibility::Hidden);
+        rank++;
+    }
+
+    onScroll();
+}
+
 bool Menu::onInput(c2d::Input::Player *players) {
+    if (buttons.empty()) {
+        return true;
+    }
+
     unsigned int keys = players[0].keys;
 
     if (keys & Input::Touch) {
@@ -96,7 +152,7 @@ bool Menu::onInput(c2d::Input::Player *players) {
             setVisibility(Visibility::Hidden, true);
         } else {
             for (unsigned int i = 0; i < buttons.size(); i++) {
-                if (buttons.at(i)->getGlobalBounds().contains(touch)) {
+                if (buttons.at(i)->isVisible() && buttons.at(i)->getGlobalBounds().contains(touch)) {
                     onOptionSelection(&buttons.at(i)->item);
                     index = i;
                     break;
@@ -119,6 +175,8 @@ bool Menu::onInput(c2d::Input::Player *players) {
         }
     }
 
+    // keep the selected button visible when the list is taller than the menu
+    updateScroll();
     highlight->tweenTo({0, buttons[index]->getPosition().y});
 
     return true;
@@ -134,5 +192,7 @@ MenuItem *Menu::getSelection() {
 
 void Menu::reset() {
     index = 0;
+    scrollIndex = 0;
+    updateScroll();
     highlight->tweenTo({0, buttons[index]->getPosition().y});
 }
