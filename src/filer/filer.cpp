@@ -199,18 +199,31 @@ static bool compare(const MediaFile &a, const MediaFile &b) {
 
 bool Filer::getDir(const std::string &p) {
     printf("getDir(%s)\n", p.c_str());
+    error.clear();
 
-    mutex->lock();
-    files.clear();
-    path = p;
-    if (path.size() > 1 && Utility::endsWith(path, "/")) {
-        path = Utility::removeLastSlash(path);
+    std::string newPath = p;
+    if (newPath.size() > 1 && Utility::endsWith(newPath, "/")) {
+        newPath = Utility::removeLastSlash(newPath);
     }
 
+    // do the (possibly slow) listing before touching the current state/mutex
     std::vector<std::string> ext = pplay::Utility::getMediaExtensions();
     pplay::Io::DeviceType type = ((pplay::Io *) main->getIo())->getDeviceType(p);
     std::vector<Io::File> _files =
-            ((pplay::Io *) main->getIo())->getDirList(type, ext, path, false);
+            ((pplay::Io *) main->getIo())->getDirList(type, ext, newPath, false);
+
+    // remote listing failed (no network, bad url, server down...): keep the
+    // current directory and report the error instead of showing an empty list
+    if (type != pplay::Io::DeviceType::Local && _files.empty()) {
+        error = "Could not list \"" + p + "\"\n\n"
+                + "Check the NETWORK entry in pplay.cfg and the console network connection.";
+        printf("getDir: %s\n", error.c_str());
+        return false;
+    }
+
+    mutex->lock();
+    files.clear();
+    path = newPath;
 
     for (auto &file: _files) {
         MediaFile mf(file, MediaInfo(file));
@@ -258,6 +271,8 @@ void Filer::enter(int index) {
     if (success) {
         item_index_prev.push_back(index);
         setSelection(item_index);
+    } else if (!error.empty()) {
+        main->getStatus()->show("OOPS", error);
     }
 }
 

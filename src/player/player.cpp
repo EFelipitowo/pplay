@@ -60,10 +60,14 @@ bool Player::load(const MediaFile &f) {
 #endif
 
     // disable subtitles if slang option not set in "mpv.conf" (overridden by "watch_later")
+    // (mpv_get_property_string may return NULL: strlen(NULL) would crash the app)
     char *slang = mpv_get_property_string(mpv->getHandle(), "slang");
-    if (strlen(slang) <= 0) {
-        printf("slang not set, disabling subtitles by default");
+    if (slang == nullptr || strlen(slang) == 0) {
+        printf("slang not set, disabling subtitles by default\n");
         mpv_set_option_string(mpv->getHandle(), "sid", "no");
+    }
+    if (slang != nullptr) {
+        mpv_free(slang);
     }
 
     int res = mpv->load(path, Mpv::LoadType::Replace, "pause=yes,speed=1");
