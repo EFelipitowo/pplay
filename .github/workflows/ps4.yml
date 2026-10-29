@@ -16,7 +16,7 @@ jobs:
       - name: Install pacman and PS4 toolchain (OpenOrbis via PacBrew)
         run: |
           set +e
-          {
+          (
             set -e
             sudo apt-get -yq update
             sudo apt-get -yq install pacman-package-manager makepkg libarchive-tools build-essential \
@@ -26,7 +26,7 @@ jobs:
             sudo pacman -Sy
             sudo pacman -S --noconfirm ps4-openorbis ps4-openorbis-portlibs
             ls /opt/pacbrew/ps4/openorbis
-          } > toolchain.log 2>&1
+          ) > toolchain.log 2>&1
           rc=$?
           cat toolchain.log
           if [ $rc -ne 0 ]; then
@@ -38,13 +38,13 @@ jobs:
       - name: Build
         run: |
           set +e
-          {
+          (
             set -e
             mkdir cmake-build-ps4 && cd cmake-build-ps4
             export OPENORBIS=/opt/pacbrew/ps4/openorbis
             cmake -G "Unix Makefiles" -DPLATFORM_PS4=ON -DCMAKE_BUILD_TYPE=Release ../
             make -j4 pplay_ps4_release
-          } > build.log 2>&1
+          ) > build.log 2>&1
           rc=$?
           cat build.log
           if [ $rc -ne 0 ]; then
