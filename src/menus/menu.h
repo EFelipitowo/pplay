@@ -68,6 +68,13 @@ protected:
 
     bool onInput(c2d::Input::Player *players) override;
 
+    // scroll "top" buttons so the selected one stays visible (lists taller than the menu)
+    void updateScroll();
+
+    // called after buttons have been moved/hidden by updateScroll
+    virtual void onScroll() {}
+
+    int scrollIndex = 0;
     Main *main;
     c2d::Text *title;
     std::vector<MenuButton *> buttons;

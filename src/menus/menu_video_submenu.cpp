@@ -27,6 +27,7 @@ MenuVideoSubmenu::MenuVideoSubmenu(
 }
 
 void MenuVideoSubmenu::setSelection(int streamId) {
+    selectedId = streamId;
     for (auto &button: buttons) {
         if (button->item.id == streamId) {
             if (isVisible()) {
@@ -34,6 +35,23 @@ void MenuVideoSubmenu::setSelection(int streamId) {
             } else {
                 highlight_selection->setPosition(button->getPosition());
             }
+            // the active stream may be scrolled out of the menu
+            highlight_selection->setVisibility(button->isVisible() ? c2d::Visibility::Visible
+                                                                   : c2d::Visibility::Hidden);
+            break;
+        }
+    }
+}
+
+void MenuVideoSubmenu::onScroll() {
+    if (highlight_selection == nullptr) {
+        return;
+    }
+    for (auto &button: buttons) {
+        if (button->item.id == selectedId) {
+            highlight_selection->setPosition(button->getPosition());
+            highlight_selection->setVisibility(button->isVisible() ? c2d::Visibility::Visible
+                                                                   : c2d::Visibility::Hidden);
             break;
         }
     }

@@ -1,0 +1,57 @@
+name: Build PS4 pkg
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master, main, ps4-fixes ]
+
+jobs:
+  ps4:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get -yq update
+          sudo apt-get -yq install build-essential cmake git zip curl libgpgme11
+          # pacbrew-pacman needs libcrypto.so.1.1, not shipped with ubuntu 22.04
+          echo "deb http://security.ubuntu.com/ubuntu focal-security main" | sudo tee /etc/apt/sources.list.d/focal-security.list
+          sudo apt-get -yq update
+          sudo apt-get -yq install libssl1.1
+          sudo rm /etc/apt/sources.list.d/focal-security.list
+
+      - name: Install PS4 toolchain (OpenOrbis via PacBrew)
+        run: |
+          set +e
+          {
+            wget -nv https://github.com/PacBrew/pacbrew-pacman/releases/download/pacbrew-release-1.0/pacbrew-pacman-1.0.deb &&
+            sudo dpkg -i pacbrew-pacman-1.0.deb &&
+            sudo pacbrew-pacman -Syu --noconfirm &&
+            sudo pacbrew-pacman --noconfirm -S ps4-openorbis ps4-openorbis-portlibs
+          } > toolchain.log 2>&1
+          rc=$?
+          cat toolchain.log
+          if [ $rc -ne 0 ]; then
+            msg=$(tail -n 25 toolchain.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=toolchain install failed (rc=$rc)::$msg"
+            exit $rc
+          fi
+
+      - name: Build
+        run: |
+          mkdir cmake-build-ps4 && cd cmake-build-ps4
+          export OPENORBIS=/opt/pacbrew/ps4/openorbis
+          cmake -G "Unix Makefiles" -DPLATFORM_PS4=ON -DCMAKE_BUILD_TYPE=Release ../
+          make -j4 pplay_ps4_release
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: pplay-ps4
+          path: |
+            cmake-build-ps4/*.zip
+            cmake-build-ps4/*.pkg
+          if-no-files-found: error
