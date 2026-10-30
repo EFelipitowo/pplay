@@ -26,7 +26,7 @@ Player::Player(Main *_main) : Rectangle(_main->getSize()) {
 
     Player::setVisibility(Visibility::Hidden);
 
-    mpv = new Mpv(main->getIo()->getDataPath() + "mpv", true);
+    mpv = new Mpv(main->getIo()->getDataPath() + "mpv", true, resolveHwdec());
 
 #ifndef FULL_TEXTURE_TEST
     texture = new VideoTexture(main, pos);
@@ -45,6 +45,7 @@ Player::Player(Main *_main) : Rectangle(_main->getSize()) {
 
 Player::~Player() {
     delete (mpv);
+    releaseHwdecGuard();
 }
 
 bool Player::load(const MediaFile &f) {
@@ -78,6 +79,102 @@ bool Player::load(const MediaFile &f) {
     }
 
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Hardware decoding (PS4 libSceVideodec2 through ffmpeg's "orbis" wrapper)
+//
+// pplay.cfg: HWDEC="auto" (default) | "no" | "force" | any mpv hwdec name
+//
+// The GPU decoder cannot be tested from outside a console and a driver fault
+// takes the whole system down. So the first seconds of every hardware decoded
+// playback are guarded: "hwdec.guard" is created when a file starts and
+// deleted once playback proved stable. If the console hangs in between, the
+// guard is still there at the next start and hardware decoding is turned off
+// ("hwdec.disabled") instead of crashing again. Delete hwdec.disabled, or set
+// HWDEC="force", to try again.
+// ---------------------------------------------------------------------------
+std::string Player::resolveHwdec() {
+#ifdef __PS4__
+    std::string mode = main->getConfig()->getOption(OPT_HWDEC)->getString();
+    std::string dir = main->getIo()->getDataPath();
+    hwdecGuardFile = dir + "hwdec.guard";
+    std::string disabledFile = dir + "hwdec.disabled";
+
+    if (mode == "no" || mode == "off" || mode == "none") {
+        remove(hwdecGuardFile.c_str());
+        return "no";
+    }
+    if (mode != "auto" && mode != "force") {
+        // explicit mpv method chosen by the user: no guard, no questions asked
+        hwdecGuardFile.clear();
+        return mode;
+    }
+
+    if (mode == "force") {
+        remove(disabledFile.c_str());
+    } else if (main->getIo()->exist(hwdecGuardFile)) {
+        // previous hardware decoded playback never proved itself: it crashed
+        remove(hwdecGuardFile.c_str());
+        FILE *f = fopen(disabledFile.c_str(), "w");
+        if (f) {
+            fputs("hardware decoding was turned off because the console stopped while using it.\n"
+                  "delete this file (or set HWDEC=\"force\" in pplay.cfg) to try again.\n", f);
+            fclose(f);
+        }
+        hwdecNotice = true;
+    }
+    if (main->getIo()->exist(disabledFile)) {
+        printf("Player: hardware decoding disabled (%s)\n", disabledFile.c_str());
+        hwdecGuardFile.clear();
+        return "no";
+    }
+
+    hwdecMethod = "orbis-copy";
+    return hwdecMethod;
+#else
+    return "";
+#endif
+}
+
+void Player::armHwdecGuard() {
+    if (hwdecGuardFile.empty() || hwdecMethod.empty() || hwdecGuardArmed) {
+        return;
+    }
+    FILE *f = fopen(hwdecGuardFile.c_str(), "w");
+    if (f) {
+        fputs("hardware decoding in progress\n", f);
+        fclose(f);
+        hwdecGuardArmed = true;
+    }
+}
+
+void Player::releaseHwdecGuard() {
+    if (hwdecGuardArmed) {
+        remove(hwdecGuardFile.c_str());
+        hwdecGuardArmed = false;
+    }
+}
+
+void Player::updateHwdecGuard() {
+    if (!hwdecGuardArmed || !mpv->isAvailable()) {
+        return;
+    }
+
+    long position = mpv->getPosition();
+    char *current = mpv_get_property_string(mpv->getHandle(), "hwdec-current");
+    std::string hw = current ? current : "";
+    if (current) {
+        mpv_free(current);
+    }
+    bool hardware = hw.find("orbis") != std::string::npos;
+
+    // software decoding (stream not supported by the hardware): nothing risky
+    // is going on; hardware decoding: wait for a few seconds of clean playback
+    if ((!hardware && position >= 3) || (hardware && position >= 10)) {
+        releaseHwdecGuard();
+        printf("Player: hwdec guard released (hwdec-current=%s)\n", hw.c_str());
+    }
 }
 
 void Player::onLoadEvent() {
@@ -150,6 +247,8 @@ void Player::onLoadEvent() {
 }
 
 void Player::onStopEvent(int reason) {
+    // the decoder was closed cleanly (or never got going): nothing to guard
+    releaseHwdecGuard();
     main->getStatus()->hide();
     main->getMenuVideo()->reset();
     osd->reset();
@@ -189,12 +288,20 @@ void Player::onStopEvent(int reason) {
 
 void Player::onUpdate() {
     //TODO: cache-buffering-state
+    if (hwdecNotice) {
+        hwdecNotice = false;
+        main->getStatus()->show("Hardware decoding disabled",
+                                "The console stopped during hardware decoding. Software decoding will be used. "
+                                "Delete hwdec.disabled to try again.");
+    }
+    updateHwdecGuard();
     if (mpv->isAvailable()) {
         mpv_event *event = mpv->getEvent();
         if (event != nullptr) {
             switch (event->event_id) {
                 case MPV_EVENT_START_FILE:
                     printf("MPV_EVENT_START_FILE\n");
+                    armHwdecGuard();
                     main->getStatus()->show("Please Wait...", "Loading... " + file.name, true);
                     break;
                 case MPV_EVENT_FILE_LOADED:

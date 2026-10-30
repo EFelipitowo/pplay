@@ -71,6 +71,15 @@ private:
 
     void onStopEvent(int reason);
 
+    // hardware decoding (see ffmpeg-orbis/): config + crash guard
+    std::string resolveHwdec();
+
+    void armHwdecGuard();
+
+    void releaseHwdecGuard();
+
+    void updateHwdecGuard();
+
     // ui
     Main *main = nullptr;
     PlayerOSD *osd = nullptr;
@@ -86,6 +95,12 @@ private:
     Mpv *mpv;
 
     bool fullscreen = false;
+
+    // hardware decoding state
+    std::string hwdecMethod;          // method given to mpv ("" = mpv default)
+    std::string hwdecGuardFile;       // exists while hw decoding has not proven itself
+    bool hwdecGuardArmed = false;
+    bool hwdecNotice = false;         // show "disabled after crash" once
 };
 
 #endif //PPLAY_PLAYER_H

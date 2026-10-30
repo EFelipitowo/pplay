@@ -14,7 +14,7 @@ static void *get_proc_address_mpv(void *unused, const char *name) {
     return SDL_GL_GetProcAddress(name);
 }
 
-Mpv::Mpv(const std::string &configPath, bool initRender) {
+Mpv::Mpv(const std::string &configPath, bool initRender, const std::string &hwdec) {
 #ifdef __PS4__
     ps4_mpv_use_precompiled_shaders = 1;
     ps4_mpv_dump_shaders = 0;
@@ -58,6 +58,17 @@ Mpv::Mpv(const std::string &configPath, bool initRender) {
 #if defined(__LINUX__) && defined(NDEBUG)
     mpv_set_option_string(handle, "hwdec", "auto-safe");
 #endif
+
+    // hardware decoding (PS4: "orbis-copy" is the libSceVideodec2 wrapper added
+    // to ffmpeg, see ffmpeg-orbis/). If mpv does not know the method (ffmpeg built
+    // without it) the option is refused and mpv keeps decoding in software.
+    if (initRender && !hwdec.empty()) {
+        int hres = mpv_set_option_string(handle, "hwdec", hwdec.c_str());
+        printf("Mpv::Mpv: hwdec=%s: %s\n", hwdec.c_str(), mpv_error_string(hres));
+        if (hres < 0) {
+            mpv_set_option_string(handle, "hwdec", "no");
+        }
+    }
 
     if (!initRender) {
         mpv_set_option_string(handle, "vid", "no");

@@ -9,6 +9,17 @@ permissions:
   contents: write
 
 jobs:
+  orbis-decoder-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test h264_orbis against a libSceVideodec2 mock
+        run: |
+          set -e
+          sudo apt-get -yq update
+          sudo apt-get -yq install ffmpeg libx264-dev build-essential zlib1g-dev libbz2-dev xz-utils curl
+          ./ffmpeg-orbis/test/run.sh
+
   ps4:
     runs-on: ubuntu-24.04
     steps:
@@ -35,6 +46,21 @@ jobs:
           if [ $rc -ne 0 ]; then
             msg=$(tail -n 25 toolchain.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
             echo "::error title=toolchain install failed (rc=$rc)::$msg"
+            exit $rc
+          fi
+
+      - name: Rebuild FFmpeg with the PS4 hardware H.264 decoder (h264_orbis)
+        run: |
+          set +e
+          (
+            set -e
+            ./ffmpeg-orbis/build-ffmpeg.sh
+          ) > ffmpeg.log 2>&1
+          rc=$?
+          tail -n 40 ffmpeg.log
+          if [ $rc -ne 0 ]; then
+            msg=$( (grep -n -m 12 -E "error|Error|ERROR|not found|failed" ffmpeg.log; echo ...; tail -n 8 ffmpeg.log) | cut -c1-300 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=ffmpeg (h264_orbis) build failed (rc=$rc)::$msg"
             exit $rc
           fi
 
@@ -84,5 +110,5 @@ jobs:
           unzip -l pplay-*.zip | tail -n 25
           gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "pplay PS4 build #${{ github.run_number }}" \
-            --notes "Unofficial PS4 build with fixes (Network non-blocking, long menu scrolling, Options removed on PS4). Install the .pkg and copy the data folder from the zip to /data/pplay/ on the console." \
+            --notes "Unofficial PS4 build with fixes (Network non-blocking, long menu scrolling, Options removed on PS4) and PS4 hardware H.264 decoding (HWDEC option in pplay.cfg, see ffmpeg-orbis/README.md). Install the .pkg and copy the data folder from the zip to /data/pplay/ on the console." \
             pplay-*.zip *.pkg

@@ -22,7 +22,7 @@ public:
         AppendPlay
     };
 
-    explicit Mpv(const std::string &configPath, bool initRender);
+    explicit Mpv(const std::string &configPath, bool initRender, const std::string &hwdec = "");
 
     ~Mpv();
 

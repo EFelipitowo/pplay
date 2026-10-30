@@ -15,6 +15,7 @@
 //#define OPT_BUFFER              "BUFFER"
 #define OPT_CPU_BOOST           "CPU_BOOST"
 #define OPT_TMDB_LANGUAGE       "TMDB_LANGUAGE"
+#define OPT_HWDEC               "HWDEC" // auto, no, force, or any mpv hwdec name
 
 class Main;
 

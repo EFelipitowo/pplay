@@ -22,6 +22,7 @@ PPLAYConfig::PPLAYConfig(Main *main, int version)
     addOption({OPT_CPU_BOOST, "Disabled"}); // Disabled, Enabled
 #endif
     addOption({OPT_TMDB_LANGUAGE, "en-US"});
+    addOption({OPT_HWDEC, "auto"});
 
     // load the configuration from file, overwriting default values
     load();
@@ -36,6 +37,10 @@ PPLAYConfig::PPLAYConfig(Main *main, int version)
 
     if (getOption(OPT_TMDB_LANGUAGE)->getString().empty()) {
         getOption(OPT_TMDB_LANGUAGE)->setString("en-US");
+    }
+
+    if (getOption(OPT_HWDEC)->getString().empty()) {
+        getOption(OPT_HWDEC)->setString("auto");
     }
 
     // save configuration, in case new options needs to be added
