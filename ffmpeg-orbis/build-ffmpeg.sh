@@ -40,6 +40,8 @@ make --quiet -j"$(getconf _NPROCESSORS_ONLN)"
 sudo -E env "PATH=$PATH" make install
 rm -rf "${OPENORBIS}/usr/share/ffmpeg" 2>/dev/null || sudo rm -rf "${OPENORBIS}/usr/share/ffmpeg"
 
-nm "${OPENORBIS}/usr/lib/libavcodec.a" 2>/dev/null | grep -q ff_h264_orbis_decoder \
+# (no "nm | grep -q": grep exiting early would SIGPIPE nm and trip pipefail)
+nm "${OPENORBIS}/usr/lib/libavcodec.a" > nm.txt 2>/dev/null || true
+grep -c ff_h264_orbis_decoder nm.txt | grep -qv '^0$' \
   || { echo "installed libavcodec.a lacks h264_orbis"; exit 1; }
 echo "FFmpeg with h264_orbis installed in ${OPENORBIS}/usr"
