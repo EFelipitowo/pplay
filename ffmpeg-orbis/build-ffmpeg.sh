@@ -33,7 +33,7 @@ patch -p1 < "$HERE/0001-h264_orbis-decoder.patch"
 # same workaround as the PacBrew package
 sed -i 's|#define HAVE_SYSCTL 1|//#define HAVE_SYSCTL 1|g' config.h
 
-grep -q 'CONFIG_H264_ORBIS_DECODER 1' config_components.h \
+grep -q 'CONFIG_H264_ORBIS_DECODER 1' config.h \
   || { echo "h264_orbis decoder not enabled by configure"; exit 1; }
 
 make --quiet -j"$(getconf _NPROCESSORS_ONLN)"
