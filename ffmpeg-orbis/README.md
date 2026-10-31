@@ -53,6 +53,39 @@ finds it, creates `hwdec.disabled` and uses software decoding. Delete
 Needs GoldHEN/HEN able to load `/system/common/lib/libSceVideodec2.sprx`. If a
 plain module load fails, a GoldHEN jailbreak (syscall 500) is tried once.
 
+## Software decoding speed (Hi10, HEVC, anything the hardware refuses)
+
+`pplay.cfg`: `SW_DECODE_SPEED="quality"` (default) | `"balanced"` (skip the loop filter on
+non-reference frames, `vd-lavc-fast`) | `"fast"` (skip the loop filter everywhere and drop
+frames in the decoder). Faster, slightly softer picture. HEVC is not hardware decoded:
+the PS4 (non-Pro) has no HEVC block, and no HEVC codec type is known for `libSceVideodec2`.
+
+To find out what the console's library accepts, create an empty file
+`/data/pplay/hwdec_probe` and play any H.264 8-bit video once: the answer to "do you
+take codec types 0..5?" is written to `/data/pplay/hwdec_probe.txt` (only memory
+size queries are made, nothing is decoded).
+
+## Subtitles
+
+The PS4 libmpv is built **without iconv**, so mpv cannot convert legacy encodings. pplay
+therefore finds external subtitles itself (`src/subtitles.cpp`) and turns text subtitles
+that are not UTF-8 into UTF-8 copies in `/data/pplay/subcache/` before giving them to mpv
+(`sub-add`); mpv's own `sub-auto` is switched off to avoid duplicates.
+
+| Format | How |
+|--------|-----|
+| SubRip `.srt`, ASS/SSA `.ass` `.ssa`, WebVTT `.vtt`, SAMI `.smi` `.sami`, MicroDVD/other `.sub` `.txt` | ffmpeg demuxers + libass, text converted to UTF-8 when needed |
+| VobSub `.idx` + `.sub` | bitmap, passed through (`.sub` next to an `.idx` is not added twice) |
+| PGS `.sup` | bitmap, passed through |
+| Embedded in MKV/MP4 (SRT, ASS, WebVTT, PGS, VobSub, mov_text...) | mpv/ffmpeg, no change |
+
+Encodings detected (no iconv needed): UTF-8/UTF-16 (left alone), Windows-1252/Latin-1,
+Korean CP949/EUC-KR, Japanese Shift-JIS, Chinese GBK and Big5 (a `charset=` declaration
+in the file is honoured first). Files are matched by name (`Movie.mkv` ↔ `Movie.es.srt`,
+`Movie.eng.forced.ass`...) in the video folder and in `Subs/`, `Sub/`, `Subtitles/`.
+External subtitles are looked up for local files only (not for HTTP/FTP/SMB browsing).
+`tests/subtitles/run.sh` checks the detection/conversion on the PC.
+
 ## Build
 
 `build-ffmpeg.sh` downloads FFmpeg 5.0, applies the patch, builds it with the

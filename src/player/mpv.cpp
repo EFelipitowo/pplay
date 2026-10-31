@@ -14,7 +14,8 @@ static void *get_proc_address_mpv(void *unused, const char *name) {
     return SDL_GL_GetProcAddress(name);
 }
 
-Mpv::Mpv(const std::string &configPath, bool initRender, const std::string &hwdec) {
+Mpv::Mpv(const std::string &configPath, bool initRender, const std::string &hwdec,
+         const std::string &swSpeed) {
 #ifdef __PS4__
     ps4_mpv_use_precompiled_shaders = 1;
     ps4_mpv_dump_shaders = 0;
@@ -44,6 +45,9 @@ Mpv::Mpv(const std::string &configPath, bool initRender, const std::string &hwde
     mpv_set_option_string(handle, "video-sync", "audio");
 #endif
     mpv_set_option_string(handle, "audio-channels", "stereo");
+    // external subtitles are found (and converted to UTF-8, the PS4 libmpv has no
+    // iconv) by pplay itself, see subtitles.h: do not let mpv add them a second time
+    mpv_set_option_string(handle, "sub-auto", "no");
 #ifdef __PS4__
     mpv_set_option_string(handle, "ignore-path-in-watch-later-config", "yes");
 #endif
@@ -68,6 +72,17 @@ Mpv::Mpv(const std::string &configPath, bool initRender, const std::string &hwde
         if (hres < 0) {
             mpv_set_option_string(handle, "hwdec", "no");
         }
+    }
+
+    // software decoding speed/quality trade-off (what is not handled by the
+    // hardware decoder runs on the console CPU: Hi10 H.264, HEVC...)
+    if (swSpeed == "balanced") {
+        mpv_set_option_string(handle, "vd-lavc-skiploopfilter", "nonref");
+        mpv_set_option_string(handle, "vd-lavc-fast", "yes");
+    } else if (swSpeed == "fast") {
+        mpv_set_option_string(handle, "vd-lavc-skiploopfilter", "all");
+        mpv_set_option_string(handle, "vd-lavc-fast", "yes");
+        mpv_set_option_string(handle, "framedrop", "decoder+vo");
     }
 
     if (!initRender) {
@@ -132,6 +147,15 @@ int Mpv::load(const std::string &file, LoadType loadType, const std::string &opt
 
 int Mpv::save() {
     return mpv_command_string(handle, "write-watch-later-config");
+}
+
+int Mpv::addSubtitle(const std::string &path, const std::string &title, const std::string &lang) {
+    if (!isAvailable()) {
+        return -1;
+    }
+    // sub-add <url> [<flags> [<title> [<lang>]]]
+    const char *cmd[] = {"sub-add", path.c_str(), "auto", title.c_str(), lang.c_str(), nullptr};
+    return mpv_command(handle, cmd);
 }
 
 int Mpv::pause() {

@@ -17,7 +17,7 @@ demuxer-mkv-subtitle-preroll=yes
 
 # no embedded fonts (ASS font loading is slow and heavy on the console)
 embeddedfonts=no
-sub-auto=no
+# external subtitles: handled by pplay (sub-auto is forced to "no", see README)
 
 network-timeout=15
 cache=yes

@@ -26,7 +26,8 @@ Player::Player(Main *_main) : Rectangle(_main->getSize()) {
 
     Player::setVisibility(Visibility::Hidden);
 
-    mpv = new Mpv(main->getIo()->getDataPath() + "mpv", true, resolveHwdec());
+    mpv = new Mpv(main->getIo()->getDataPath() + "mpv", true, resolveHwdec(),
+              main->getConfig()->getOption(OPT_SW_SPEED)->getString());
 
 #ifndef FULL_TEXTURE_TEST
     texture = new VideoTexture(main, pos);
@@ -69,6 +70,12 @@ bool Player::load(const MediaFile &f) {
     }
     if (slang != nullptr) {
         mpv_free(slang);
+    }
+
+    // external subtitles next to the video (srt, ass/ssa, vtt, smi/sami, idx+sub, sup...)
+    externalSubs = pplay::Subtitles::find(path, main->getIo()->getDataPath() + "subcache/");
+    for (auto &sub: externalSubs) {
+        printf("Player::load: external subtitle: %s (%s)\n", sub.path.c_str(), sub.note.c_str());
     }
 
     int res = mpv->load(path, Mpv::LoadType::Replace, "pause=yes,speed=1");
@@ -178,6 +185,15 @@ void Player::updateHwdecGuard() {
 }
 
 void Player::onLoadEvent() {
+    // add external subtitles first so they show up in the track list below
+    for (auto &sub: externalSubs) {
+        int r = mpv->addSubtitle(sub.path, sub.title, sub.lang);
+        if (r < 0) {
+            printf("Player::onLoadEvent: could not add subtitle %s: %s\n", sub.path.c_str(), mpv_error_string(r));
+        }
+    }
+    externalSubs.clear();
+
     // load/update media information
     file.mediaInfo = mpv->getMediaInfo(file);
     file.mediaInfo.save(file);

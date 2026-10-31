@@ -22,13 +22,17 @@ public:
         AppendPlay
     };
 
-    explicit Mpv(const std::string &configPath, bool initRender, const std::string &hwdec = "");
+    explicit Mpv(const std::string &configPath, bool initRender, const std::string &hwdec = "",
+                 const std::string &swSpeed = "quality");
 
     ~Mpv();
 
     int load(const std::string &file, LoadType loadType, const std::string &options);
 
     int save();
+
+    // add an external subtitle file (text subtitles must already be UTF-8)
+    int addSubtitle(const std::string &path, const std::string &title, const std::string &lang);
 
     int pause();
 

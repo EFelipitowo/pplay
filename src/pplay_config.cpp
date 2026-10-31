@@ -23,6 +23,7 @@ PPLAYConfig::PPLAYConfig(Main *main, int version)
 #endif
     addOption({OPT_TMDB_LANGUAGE, "en-US"});
     addOption({OPT_HWDEC, "auto"});
+    addOption({OPT_SW_SPEED, "quality"});
 
     // load the configuration from file, overwriting default values
     load();
@@ -41,6 +42,13 @@ PPLAYConfig::PPLAYConfig(Main *main, int version)
 
     if (getOption(OPT_HWDEC)->getString().empty()) {
         getOption(OPT_HWDEC)->setString("auto");
+    }
+
+    {
+        const std::string speed = getOption(OPT_SW_SPEED)->getString();
+        if (speed != "quality" && speed != "balanced" && speed != "fast") {
+            getOption(OPT_SW_SPEED)->setString("quality");
+        }
     }
 
     // save configuration, in case new options needs to be added

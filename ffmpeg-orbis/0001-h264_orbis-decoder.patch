@@ -36,10 +36,10 @@ index d1e1019..6331cc9 100644
  extern const AVCodec ff_hevc_decoder;
 diff --git a/libavcodec/orbisvdec.c b/libavcodec/orbisvdec.c
 new file mode 100644
-index 0000000..dacec89
+index 0000000..b0d98d6
 --- /dev/null
 +++ b/libavcodec/orbisvdec.c
-@@ -0,0 +1,1031 @@
+@@ -0,0 +1,1082 @@
 +/*
 + * PS4 (Orbis) hardware H.264 decoder using libSceVideodec2
 + *
@@ -89,6 +89,7 @@ index 0000000..dacec89
 +#include <inttypes.h>
 +#include <limits.h>
 +#include <pthread.h>
++#include <stdio.h>
 +#include <string.h>
 +#include <time.h>
 +
@@ -197,6 +198,55 @@ index 0000000..dacec89
 +    return 0;
 +}
 +
++
++#ifdef __ORBIS__
++/* Opt-in diagnostics: create /data/pplay/hwdec_probe, start a hardware decoded
++ * video, and the result of asking the library about other codec types (HEVC...)
++ * is written to /data/pplay/hwdec_probe.txt. Only QueryDecoderMemoryInfo is
++ * called: nothing is decoded and no memory is reserved. */
++static void probe_codecs(OrbisSession *s)
++{
++    static const char trigger[] = "/data/pplay/hwdec_probe";
++    static const char report[]  = "/data/pplay/hwdec_probe.txt";
++    static const unsigned codecs[]   = { 0, 2, 3, 4, 5 };
++    static const unsigned profiles[] = { 1, 2, 100 };
++    static const unsigned levels[]   = { 51, 123, 153 };
++    FILE *t = fopen(trigger, "rb"), *f;
++    int a, b, c;
++
++    if (!t)
++        return;
++    fclose(t);
++    remove(trigger);
++    f = fopen(report, "w");
++    if (!f)
++        return;
++    fprintf(f, "sceVideodec2QueryDecoderMemoryInfo, resourceType 1, %dx%d\n",
++            SESSION_MAX_W, SESSION_MAX_H);
++    for (a = 0; a < (int)FF_ARRAY_ELEMS(codecs); a++)
++        for (b = 0; b < (int)FF_ARRAY_ELEMS(profiles); b++)
++            for (c = 0; c < (int)FF_ARRAY_ELEMS(levels); c++) {
++                OVDDecoderConfig cfg = s->cfg;
++                OVDDecoderMemInfo mi;
++                int rc;
++                cfg.codecType = codecs[a];
++                cfg.profile   = profiles[b];
++                cfg.maxLevel  = levels[c];
++                memset(&mi, 0, sizeof(mi));
++                mi.thisSize = sizeof(mi);
++                rc = s->api.QueryDecoderMemoryInfo(&cfg, &mi);
++                fprintf(f, "codec %u profile %3u level %3u -> 0x%08x%s fb=%"PRIu64"\n",
++                        codecs[a], profiles[b], levels[c], (unsigned)rc,
++                        rc >= 0 ? "  ACCEPTED" : "", (uint64_t)mi.maxFrameBufferSize);
++                fflush(f);
++            }
++    fprintf(f, "done\n");
++    fclose(f);
++}
++#else
++static void probe_codecs(OrbisSession *s) { }
++#endif
++
 +/* Runs on the worker thread. */
 +static int do_init(OrbisSession *s)
 +{
@@ -245,6 +295,7 @@ index 0000000..dacec89
 +    rc = s->api.QueryDecoderMemoryInfo(&s->cfg, &s->mi);
 +    if (rc < 0)
 +        return AVERROR_EXTERNAL;
++    probe_codecs(s);
 +    av_log(NULL, AV_LOG_VERBOSE,
 +           "orbis: decoder memory cpu=%"PRIu64" gpu=%"PRIu64" cpugpu=%"PRIu64" fb=%"PRIu64"\n",
 +           s->mi.cpuMemorySize, s->mi.gpuMemorySize, s->mi.cpuGpuMemorySize,

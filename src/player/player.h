@@ -8,8 +8,10 @@
 #include "menus/menu_video_submenu.h"
 #include "media_file.h"
 #include "mpv.h"
+#include "subtitles.h"
 
 class Main;
+
 
 class PlayerOSD;
 
@@ -89,6 +91,7 @@ private:
     MenuVideoSubmenu *menuAudioStreams = nullptr;
     MenuVideoSubmenu *menuSubtitlesStreams = nullptr;
     MediaFile file;
+    std::vector<pplay::Subtitles::Item> externalSubs;
 
     // player
     VideoTexture *texture = nullptr;
