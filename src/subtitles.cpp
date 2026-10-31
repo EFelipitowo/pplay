@@ -299,7 +299,7 @@ const char *Subtitles::name(Encoding enc) {
 // ---------------------------------------------------------------------------
 
 bool Subtitles::isTextExtension(const std::string &ext) {
-    static const char *exts[] = {"srt", "ass", "ssa", "vtt", "smi", "sami", "sub", "txt", "mpl", "lrc", nullptr};
+    static const char *exts[] = {"srt", "ass", "ssa", "vtt", "smi", "sami", "sub", "mpl", nullptr};
     for (int i = 0; exts[i]; i++) {
         if (ext == exts[i]) return true;
     }
@@ -370,8 +370,6 @@ std::vector<Subtitles::Item> Subtitles::find(const std::string &videoPath, const
         if (isDir(dir + sub)) dirs.push_back(dir + sub + "/");
     }
 
-    mkdir(cacheDir.c_str(), 0777);
-
     for (auto &d: dirs) {
         std::vector<std::string> names = listDir(d);
         for (auto &name: names) {
@@ -422,6 +420,7 @@ std::vector<Subtitles::Item> Subtitles::find(const std::string &videoPath, const
                 if (enc != Encoding::Utf8) {
                     std::string conv;
                     if (toUtf8(data, enc, conv)) {
+                        mkdir(cacheDir.c_str(), 0777);
                         std::string out = cacheDir + std::to_string(hashString(it.path)) + "." + ext;
                         if (writeFile(out, conv)) {
                             it.path = out;

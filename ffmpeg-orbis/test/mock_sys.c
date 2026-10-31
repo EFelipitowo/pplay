@@ -25,6 +25,7 @@ int   mock_no_flush;           /* Flush not exported */
 int   mock_no_reset;           /* Reset not exported */
 int   mock_stats_decode, mock_stats_reset, mock_stats_flush, mock_stats_create;
 int   mock_wrong_thread;
+int   mock_order_violation, mock_dec_alive, mock_queue_alive, mock_queue_when_alloc_decoder;
 
 #define MAXA 64
 static void *allocs[MAXA]; static size_t asz[MAXA]; static int na;
@@ -44,19 +45,29 @@ int ovd_sys_dmem_alloc(OVDMem *m, size_t size, int type) {
     m->va = p; m->size = size; m->off = 0;
     return 0;
 }
-void ovd_sys_usleep(unsigned u) { usleep(u); }
+void ovd_sys_priv_leave(void) {}
+static int cfg_w, cfg_h;
+void ovd_sys_dmem_free(OVDMem *m) {
+    /* the real console faults if memory goes away while the decoder or the compute queue still use it */
+    if (mock_dec_alive || mock_queue_alive) mock_order_violation++;
+    for (int i = 0; i < na; i++) if (allocs[i] == m->va) { free(allocs[i]); allocs[i] = allocs[--na]; asz[i] = asz[na]; m->va = NULL; return; }
+    mock_order_violation++;                       /* double free / foreign pointer */
+}
+int ovd_mock_live_allocs(void) { return na; }
+void ovd_sys_usleep(unsigned u) { usleep(u / 20); }   /* the mock does not need the real delays */
 
 typedef struct Dec { AVCodecContext *c; AVPacket *pkt; AVFrame *f; int n; int draining; int sent_null; } Dec;
 static Dec D;
 
 static int q_cmem(OVDComputeMemInfo *i) { i->cpuGpuMemorySize = 0x10000; return 0; }
 static int q_alloc(const OVDComputeConfig *c, const OVDComputeMemInfo *m, void **q) {
-    if (!in_alloc(m->cpuGpuMemory, 16)) return -1; *q = (void *)0x1234; return 0; }
-static int q_rel(void *q) { return 0; }
+    if (!in_alloc(m->cpuGpuMemory, 16)) return -1; *q = (void *)0x1234; mock_queue_alive = 1; return 0; }
+static int q_rel(void *q) { if (mock_dec_alive) mock_order_violation++; mock_queue_alive = 0; return 0; }
 static int q_dmem(const OVDDecoderConfig *c, OVDDecoderMemInfo *m) {
-    if (c->thisSize != sizeof(*c) || c->maxFrameWidth != 1920 || c->maxFrameHeight != 1088 || !c->computeQueue) return -1;
+    if (c->thisSize != sizeof(*c) || c->maxFrameWidth <= 0 || c->maxFrameWidth > 1920 || c->maxFrameHeight <= 0 || c->maxFrameHeight > 1088 || (c->maxFrameWidth & 15) || (c->maxFrameHeight & 15) || c->maxDpbFrameCount < 1 || c->maxDpbFrameCount > 8 || !c->computeQueue) return -1;
+    cfg_w = c->maxFrameWidth; cfg_h = c->maxFrameHeight;
     m->cpuMemorySize = 0x100000; m->gpuMemorySize = 0x100000; m->cpuGpuMemorySize = 0x100000;
-    m->maxFrameBufferSize = 2048 * (1088 + 32) * 3 / 2; m->frameBufferAlignment = 0x100; return 0; }
+    m->maxFrameBufferSize = ((size_t)((cfg_w + 255) & ~255) + 256) * (cfg_h + 32) * 3 / 2; m->frameBufferAlignment = 0x100; return 0; }
 static int d_create(const OVDDecoderConfig *c, const OVDDecoderMemInfo *m, void **d) {
     if (!in_alloc(m->cpuMemory, 16) || !in_alloc(m->gpuMemory, 16) || !in_alloc(m->cpuGpuMemory, 16)) return -2;
     mock_stats_create++;
@@ -65,10 +76,11 @@ static int d_create(const OVDDecoderConfig *c, const OVDDecoderMemInfo *m, void 
     D.c->apply_cropping = 0; D.c->thread_count = 1;
     if (avcodec_open2(D.c, codec, NULL) < 0) return -3;
     D.pkt = av_packet_alloc(); D.f = av_frame_alloc(); D.n = 0; D.draining = D.sent_null = 0;
-    *d = &D; return 0; }
-static int d_delete(void *d) { avcodec_free_context(&D.c); av_packet_free(&D.pkt); av_frame_free(&D.f); return 0; }
+    mock_dec_alive = 1; *d = &D; return 0; }
+static int d_delete(void *d) { mock_dec_alive = 0; avcodec_free_context(&D.c); av_packet_free(&D.pkt); av_frame_free(&D.f); return 0; }
 
 static int emit(OVDFrameBuffer *fb, OVDOutput *o, AVFrame *f, int idx) {
+    if (f->width > cfg_w || f->height > cfg_h) return -7;   /* the hardware was sized for a smaller picture */
     int pitch = (f->width + 255) & ~255; if (pitch == f->width) pitch += 256;
     int ph = f->height + mock_extra_pad;
     if ((size_t)pitch * ph * 3 / 2 > fb->frameBufferSize) return -5;

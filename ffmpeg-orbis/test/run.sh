@@ -41,6 +41,8 @@ gen odd1366.mp4 1366x768  -profile:v high -bf 2 -refs 3 -g 40 -pix_fmt yuv420p
 gen base480.mp4 640x480   -profile:v baseline -pix_fmt yuv420p
 gen hi10.mkv    1280x720  -profile:v high10 -pix_fmt yuv420p10le
 gen y422.mkv    1280x720  -profile:v high422 -pix_fmt yuv422p
+gen mp720.ts    1280x720  -profile:v main -bf 2 -refs 3 -g 30 -pix_fmt yuv420p
+[ -f concat.ts ] || cat hp1080.ts mp720.ts > concat.ts
 gen big4k.mp4   3840x2160 -profile:v high -pix_fmt yuv420p -frames:v 4
 gen ilace.mkv   1920x1080 -profile:v high -flags +ildct+ilme -x264-params tff=1 -pix_fmt yuv420p
 
@@ -48,6 +50,6 @@ fail=0
 t() { echo "== $*"; "$B/orbis_test" "$@" || fail=1; }
 t hp1080.mp4; t hp1080.mp4 seek; t hp1080.mp4 pad; t hp1080.mp4 reopen
 t hp1080.mp4 noreset; t hp1080.mp4 noflush; t hp1080.mp4 failau; t hp1080.mp4 errframe
-t mp720.mkv; t hp1080.ts; t odd1366.mp4; t base480.mp4
+t concat.ts midchange; t mp720.mkv; t hp1080.ts; t odd1366.mp4; t base480.mp4
 for f in hi10.mkv y422.mkv big4k.mp4 ilace.mkv; do t "$f" reject; done
 [ $fail -eq 0 ] && echo "ALL TESTS PASSED" || { echo "TESTS FAILED"; exit 1; }

@@ -7,8 +7,10 @@
 #include "libavformat/avformat.h"
 #include "libavcodec/avcodec.h"
 #include "libavutil/imgutils.h"
+#include "libavutil/dict.h"
 
 extern pid_t mock_main_tid; extern int mock_extra_pad, mock_fail_at, mock_err_frame_at, mock_no_flush, mock_no_reset;
+extern int mock_order_violation, mock_dec_alive, mock_queue_alive; int ovd_mock_live_allocs(void);
 extern int mock_stats_decode, mock_stats_reset, mock_stats_flush, mock_stats_create, mock_wrong_thread;
 
 typedef struct { int64_t pts; uint64_t h; } Rec;
@@ -59,7 +61,8 @@ int main(int argc, char **argv) {
     for (int s = 0; s < nsess; s++) {
         av_seek_frame(fc, vs, 0, AVSEEK_FLAG_BACKWARD);
         AVCodecContext *cc = avcodec_alloc_context3(c); avcodec_parameters_to_context(cc, fc->streams[vs]->codecpar);
-        int r = avcodec_open2(cc, c, NULL);
+        AVDictionary *opts = NULL; if (strcmp(mode, "noflush")) av_dict_set(&opts, "drain", "1", 0);
+        int r = avcodec_open2(cc, c, &opts); av_dict_free(&opts);
         if (expect_reject) { if (r >= 0) FAIL("expected the stream to be rejected"); printf("OK rejected (%s)\n", av_err2str(r)); return 0; }
         if (r < 0) FAIL("open: %s", av_err2str(r));
         AVPacket *p = av_packet_alloc(); AVFrame *f = av_frame_alloc();
@@ -73,11 +76,11 @@ int main(int argc, char **argv) {
                         av_packet_unref(p); avcodec_flush_buffers(cc);
                         av_seek_frame(fc, vs, fc->streams[vs]->duration * 2 / 3, AVSEEK_FLAG_BACKWARD);
                         seeked = 1; last = INT64_MIN; continue; }
-                    npk++; if (avcodec_send_packet(cc, p) < 0) FAIL("send_packet");
+                    npk++; int sr = avcodec_send_packet(cc, p); if (sr < 0) { if (!strcmp(mode, "midchange") && got > 0) { printf("OK: send_packet refused after %d frames (%s)\n", got, av_err2str(sr)); return 0; } FAIL("send_packet"); }
                     av_packet_unref(p);
                 } else av_packet_unref(p);
             }
-            for (;;) { int g = avcodec_receive_frame(cc, f); if (g == AVERROR(EAGAIN) || g == AVERROR_EOF) break; if (g < 0) FAIL("receive %s", av_err2str(g));
+            for (;;) { int g = avcodec_receive_frame(cc, f); if (g == AVERROR(EAGAIN) || g == AVERROR_EOF) break; if (g < 0) { if (!strcmp(mode, "midchange") && got > 0) { printf("OK: left hardware decoding after %d frames (%s)\n", got, av_err2str(g)); return 0; } FAIL("receive %s", av_err2str(g)); }
                 int found; uint64_t h = find_ref(f->pts, &found);
                 if (!found) nomatch++; else if (h != hash_frame(f)) bad++;
                 if (f->pts <= last) out_of_order++; last = f->pts; got++; av_frame_unref(f); }
@@ -91,6 +94,9 @@ int main(int argc, char **argv) {
         if ((bad && !lossy) || nomatch || out_of_order) FAIL("content/pts mismatch");
         if (got < exp_min) FAIL("missing frames: got %d expected >= %d", got, exp_min);
         if (mock_wrong_thread) FAIL("Decode ran on the main thread");
-        total_ok++; avcodec_free_context(&cc); av_packet_free(&p); av_frame_free(&f);
+        avcodec_free_context(&cc);
+        if (mock_dec_alive || mock_queue_alive || ovd_mock_live_allocs()) FAIL("resources still allocated after close (dec=%d queue=%d mem=%d)", mock_dec_alive, mock_queue_alive, ovd_mock_live_allocs());
+        if (mock_order_violation) FAIL("teardown order violation");
+        total_ok++; av_packet_free(&p); av_frame_free(&f);
     }
     printf("OK\n"); return 0; }

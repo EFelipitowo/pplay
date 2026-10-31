@@ -25,14 +25,24 @@ mpv (libmpv)  --hwdec=orbis-copy
 * **Timestamps:** the decoder returns pictures in display order but without usable
   timestamps; input pts are kept in a sorted queue and the smallest is attached to
   every picture that comes out (correct with B-frames).
-* **Memory:** all direct memory (compute queue, decoder CPU/GPU/CPU-GPU areas, frame
-  pool, 3 × 4 MiB AU buffers) is allocated once and kept for the life of the process.
-  A new file just `Reset`s the decoder. Releasing it is what makes the GPU fault.
-* **Fallback:** only 8-bit 4:2:0 progressive Baseline/Main/High, level ≤ 5.1,
-  ≤ 1920×1088 and ≤ `dpb` reference frames are accepted. Anything else (Hi10,
+* **Memory / lifecycle:** the decoder, the compute queue and all direct memory are
+  created when a video is opened (sized for that video, like Moonlight-ps4 and PS4 Cast
+  do) and torn down when it is closed, in the order decoder → compute queue → memory.
+  Nothing stays allocated between videos: a live compute queue makes the system fault
+  when the app is suspended or closed. After a close the next open waits 250 ms.
+  If a call into the library ever hangs (10 s) the session is marked broken, memory is
+  deliberately leaked instead of freed under a running GPU, and later files use software.
+* **Fallback:** only 8-bit 4:2:0 progressive Baseline/Main/High (no Extended, no FMO),
+  level ≤ 5.1, ≤ 1920×1088 and ≤ `dpb` (default and maximum 8) reference frames are
+  accepted. The first access unit sent to the hardware is an IDR, and if the stream
+  changes format in the middle the hardware is left for good. Anything else (Hi10,
   4:2:2, interlaced, 4K...) is refused when the decoder opens and mpv decodes it in
   software automatically. A decoder error at the start of a file does the same.
   A call that hangs for 10 s marks the session broken and later files use software.
+
+* **End of stream:** `sceVideodec2Flush` has not been verified on a console (neither
+  reference calls it), so draining is off (`drain=0`): the last 1–3 pictures of a file
+  may not be shown. Enable with `--vd-lavc-o=drain=1` once you trust it.
 
 ## Using it
 
