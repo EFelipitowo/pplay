@@ -102,7 +102,7 @@ std::string Player::resolveHwdec() {
     std::string disabledFile = dir + "hwdec.disabled";
 
     if (mode == "no" || mode == "off" || mode == "none") {
-        remove(hwdecGuardFile.c_str());
+        ::remove(hwdecGuardFile.c_str());
         return "no";
     }
     if (mode != "auto" && mode != "force") {
@@ -112,10 +112,10 @@ std::string Player::resolveHwdec() {
     }
 
     if (mode == "force") {
-        remove(disabledFile.c_str());
+        ::remove(disabledFile.c_str());
     } else if (main->getIo()->exist(hwdecGuardFile)) {
         // previous hardware decoded playback never proved itself: it crashed
-        remove(hwdecGuardFile.c_str());
+        ::remove(hwdecGuardFile.c_str());
         FILE *f = fopen(disabledFile.c_str(), "w");
         if (f) {
             fputs("hardware decoding was turned off because the console stopped while using it.\n"
@@ -151,7 +151,7 @@ void Player::armHwdecGuard() {
 
 void Player::releaseHwdecGuard() {
     if (hwdecGuardArmed) {
-        remove(hwdecGuardFile.c_str());
+        ::remove(hwdecGuardFile.c_str());
         hwdecGuardArmed = false;
     }
 }
