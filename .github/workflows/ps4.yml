@@ -3,7 +3,7 @@ name: Build PS4 pkg
 on:
   workflow_dispatch:
   push:
-    branches: [ master, main, ps4-fixes ]
+    branches: [ master ]
 
 permissions:
   contents: write
@@ -53,14 +53,6 @@ jobs:
             echo "::error title=toolchain install failed (rc=$rc)::$msg"
             exit $rc
           fi
-
-      - name: Show the socket constants of the PS4 libc headers (diagnostics)
-        continue-on-error: true
-        run: |
-          f=$(find /opt/pacbrew/ps4/openorbis -path '*sys/socket.h' | head -3)
-          echo "$f"
-          for h in $f; do grep -nE "define[[:space:]]+(MSG_[A-Z]+|SO_(RCVTIMEO|NOSIGPIPE|REUSEADDR)|SHUT_WR|SOMAXCONN)" "$h" | head -40; done
-          grep -rnE "define[[:space:]]+FD_SETSIZE" /opt/pacbrew/ps4/openorbis --include=*.h | head -3
 
       - name: Rebuild FFmpeg with the PS4 hardware H.264 decoder (h264_orbis)
         run: |
@@ -123,5 +115,5 @@ jobs:
           unzip -l pplay-*.zip | tail -n 25
           gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "pplay PS4 build #${{ github.run_number }}" \
-            --notes "Unofficial PS4 build with fixes (Network non-blocking, long menu scrolling, Options removed on PS4) and PS4 hardware H.264 decoding (HWDEC option in pplay.cfg, see ffmpeg-orbis/README.md). Install the .pkg and copy the data folder from the zip to /data/pplay/ on the console." \
+            --notes "Unofficial PS4 build (HEN / GoldHEN). Install the .pkg and copy the data folder from the zip to /data/pplay/ on the console. Hardware H.264 decoding, working Options menu, subtitles (image subtitles, automatic language choice), analog stick and phone remote control: see the README." \
             pplay-*.zip *.pkg
