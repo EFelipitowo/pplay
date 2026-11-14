@@ -3,35 +3,49 @@ name: Build PS4 pkg
 on:
   workflow_dispatch:
   push:
-    branches: [ master, main, ps4-fixes ]
+    branches: [ master ]
+
+permissions:
+  contents: write
 
 jobs:
+  orbis-decoder-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test h264_orbis against a libSceVideodec2 mock
+        run: |
+          set -e
+          sudo apt-get -yq update
+          sudo apt-get -yq install ffmpeg libx264-dev build-essential zlib1g-dev libbz2-dev xz-utils curl
+          ./ffmpeg-orbis/test/run.sh
+          ./tests/subtitles/run.sh
+          ./tests/menu/run.sh
+          ./tests/subpref/run.sh
+          ./tests/remote/run.sh
+          ./tests/stick/run.sh
+
   ps4:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get -yq update
-          sudo apt-get -yq install build-essential cmake git zip curl libgpgme11
-          # pacbrew-pacman needs libcrypto.so.1.1, not shipped with ubuntu 22.04
-          echo "deb http://security.ubuntu.com/ubuntu focal-security main" | sudo tee /etc/apt/sources.list.d/focal-security.list
-          sudo apt-get -yq update
-          sudo apt-get -yq install libssl1.1
-          sudo rm /etc/apt/sources.list.d/focal-security.list
-
-      - name: Install PS4 toolchain (OpenOrbis via PacBrew)
+      - name: Install pacman and PS4 toolchain (OpenOrbis via PacBrew)
         run: |
           set +e
-          {
-            wget -nv https://github.com/PacBrew/pacbrew-pacman/releases/download/pacbrew-release-1.0/pacbrew-pacman-1.0.deb &&
-            sudo dpkg -i pacbrew-pacman-1.0.deb &&
-            sudo pacbrew-pacman -Syu --noconfirm &&
-            sudo pacbrew-pacman --noconfirm -S ps4-openorbis ps4-openorbis-portlibs
-          } > toolchain.log 2>&1
+          (
+            set -e
+            sudo apt-get -yq update
+            sudo apt-get -yq install pacman-package-manager makepkg libarchive-tools build-essential \
+              autoconf libtool cmake nasm git curl python3 zip
+            # new PacBrew package server (see PacBrew/pacbrew-packages README)
+            printf '\n[pacbrew]\nSigLevel = Optional TrustAll\nServer = https://pacman.mydedibox.fr/pacbrew/packages/\n' | sudo tee -a /etc/pacman.conf
+            sudo pacman -Sy
+            sudo pacman -S --noconfirm ps4-openorbis ps4-openorbis-portlibs
+            ls /opt/pacbrew/ps4/openorbis
+          ) > toolchain.log 2>&1
           rc=$?
           cat toolchain.log
           if [ $rc -ne 0 ]; then
@@ -40,12 +54,47 @@ jobs:
             exit $rc
           fi
 
+      - name: Rebuild FFmpeg with the PS4 hardware H.264 decoder (h264_orbis)
+        run: |
+          set +e
+          (
+            set -e
+            ./ffmpeg-orbis/build-ffmpeg.sh
+          ) > ffmpeg.log 2>&1
+          rc=$?
+          tail -n 40 ffmpeg.log
+          if [ $rc -ne 0 ]; then
+            msg=$( (grep -n -m 12 -E "error|Error|ERROR|not found|failed" ffmpeg.log; echo ...; tail -n 8 ffmpeg.log) | cut -c1-300 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=ffmpeg (h264_orbis) build failed (rc=$rc)::$msg"
+            exit $rc
+          fi
+
+      - name: Create pscrap tmdb.key
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          # pscrap/CMakeLists.txt requires tmdb.key. Without a real key the app builds
+          # and runs, only the TMDB scrapper (covers/synopsis) returns nothing.
+          if [ -n "$TMDB_API_KEY" ]; then printf '%s' "$TMDB_API_KEY" > pscrap/tmdb.key; else printf '%s' 00000000000000000000000000000000 > pscrap/tmdb.key; fi
+
       - name: Build
         run: |
-          mkdir cmake-build-ps4 && cd cmake-build-ps4
-          export OPENORBIS=/opt/pacbrew/ps4/openorbis
-          cmake -G "Unix Makefiles" -DPLATFORM_PS4=ON -DCMAKE_BUILD_TYPE=Release ../
-          make -j4 pplay_ps4_release
+          set +e
+          (
+            set -e
+            mkdir cmake-build-ps4 && cd cmake-build-ps4
+            export OPENORBIS=/opt/pacbrew/ps4/openorbis
+            cmake -G "Unix Makefiles" -DPLATFORM_PS4=ON -DCMAKE_BUILD_TYPE=Release ../
+            make -j4 pplay_ps4_release
+          ) > build.log 2>&1
+          rc=$?
+          cat build.log
+          if [ $rc -ne 0 ]; then
+            # first errors are the useful ones; keep the annotation small
+            msg=$( (grep -n -m 12 -E "error|Error|CMake Error|undefined reference|No rule|not found" build.log; echo ...; tail -n 8 build.log) | cut -c1-300 | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=build failed (rc=$rc)::$msg"
+            exit $rc
+          fi
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -55,3 +104,16 @@ jobs:
             cmake-build-ps4/*.zip
             cmake-build-ps4/*.pkg
           if-no-files-found: error
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="ps4-build-${{ github.run_number }}"
+          cd cmake-build-ps4
+          unzip -l pplay-*.zip | tail -n 25
+          gh release create "$TAG" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "pplay PS4 build #${{ github.run_number }}" \
+            --notes "Unofficial PS4 build (HEN / GoldHEN). Install the .pkg and copy the data folder from the zip to /data/pplay/ on the console. Hardware H.264 decoding, working Options menu, subtitles (image subtitles, automatic language choice), analog stick and phone remote control: see the README." \
+            pplay-*.zip *.pkg
